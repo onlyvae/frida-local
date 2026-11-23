@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+if [ "${1:-}" = upgrade ] && [ -d /Applications/FridaLocalFixture.app ]; then
+    uicache -u /Applications/FridaLocalFixture.app >/dev/null 2>&1 || true
+fi

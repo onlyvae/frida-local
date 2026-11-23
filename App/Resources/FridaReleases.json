@@ -1,0 +1,105 @@
+{
+  "releases": [
+    {
+      "version": "16.7.19",
+      "downloadURL": "https://github.com/frida/frida/releases/download/16.7.19/frida_16.7.19_iphoneos-arm64.deb",
+      "sha256": null
+    },
+    {
+      "version": "16.7.18",
+      "downloadURL": "https://github.com/frida/frida/releases/download/16.7.18/frida_16.7.18_iphoneos-arm64.deb",
+      "sha256": null
+    },
+    {
+      "version": "16.7.17",
+      "downloadURL": "https://github.com/frida/frida/releases/download/16.7.17/frida_16.7.17_iphoneos-arm64.deb",
+      "sha256": null
+    },
+    {
+      "version": "16.7.16",
+      "downloadURL": "https://github.com/frida/frida/releases/download/16.7.16/frida_16.7.16_iphoneos-arm64.deb",
+      "sha256": null
+    },
+    {
+      "version": "16.7.15",
+      "downloadURL": "https://github.com/frida/frida/releases/download/16.7.15/frida_16.7.15_iphoneos-arm64.deb",
+      "sha256": null
+    },
+    {
+      "version": "16.7.14",
+      "downloadURL": "https://github.com/frida/frida/releases/download/16.7.14/frida_16.7.14_iphoneos-arm64.deb",
+      "sha256": null
+    },
+    {
+      "version": "16.7.13",
+      "downloadURL": "https://github.com/frida/frida/releases/download/16.7.13/frida_16.7.13_iphoneos-arm64.deb",
+      "sha256": null
+    },
+    {
+      "version": "16.7.12",
+      "downloadURL": "https://github.com/frida/frida/releases/download/16.7.12/frida_16.7.12_iphoneos-arm64.deb",
+      "sha256": null
+    },
+    {
+      "version": "16.7.11",
+      "downloadURL": "https://github.com/frida/frida/releases/download/16.7.11/frida_16.7.11_iphoneos-arm64.deb",
+      "sha256": null
+    },
+    {
+      "version": "16.7.10",
+      "downloadURL": "https://github.com/frida/frida/releases/download/16.7.10/frida_16.7.10_iphoneos-arm64.deb",
+      "sha256": null
+    },
+    {
+      "version": "17.27.4",
+      "downloadURL": "https://github.com/frida/frida/releases/download/17.27.4/frida_17.27.4_iphoneos-arm64.deb",
+      "sha256": "sha256:3c6af43b48202ac1c9824dcafc393087e0080cf7486738f80b36b9170c5df232"
+    },
+    {
+      "version": "17.27.3",
+      "downloadURL": "https://github.com/frida/frida/releases/download/17.27.3/frida_17.27.3_iphoneos-arm64.deb",
+      "sha256": "sha256:e08a26ae8450179d374028b524a82ec34e97b9eeb33d33edd3b4f78d53ef2264"
+    },
+    {
+      "version": "17.27.2",
+      "downloadURL": "https://github.com/frida/frida/releases/download/17.27.2/frida_17.27.2_iphoneos-arm64.deb",
+      "sha256": "sha256:272bc0655f4f20853091d8bfcff60372746c934fc3914f194feb8570a5f1b982"
+    },
+    {
+      "version": "17.27.1",
+      "downloadURL": "https://github.com/frida/frida/releases/download/17.27.1/frida_17.27.1_iphoneos-arm64.deb",
+      "sha256": "sha256:fc9d0d4ad894f183362830eea859bf29e4f3ce4422ab4c8902ed387e20ff9785"
+    },
+    {
+      "version": "17.27.0",
+      "downloadURL": "https://github.com/frida/frida/releases/download/17.27.0/frida_17.27.0_iphoneos-arm64.deb",
+      "sha256": "sha256:8017e85484192de616aa0402f1145743c553cf4f3113eeb3bf851a16e2d97d6b"
+    },
+    {
+      "version": "17.26.4",
+      "downloadURL": "https://github.com/frida/frida/releases/download/17.26.4/frida_17.26.4_iphoneos-arm64.deb",
+      "sha256": "sha256:8f0f8006bf6acea5e6060b4c2b14086287380fbc7455fac63616022fc1844482"
+    },
+    {
+      "version": "17.26.3",
+      "downloadURL": "https://github.com/frida/frida/releases/download/17.26.3/frida_17.26.3_iphoneos-arm64.deb",
+      "sha256": "sha256:e957091fd6e44dd99e712e5df8ba32acbd2336f8f6c16fce6278cc96ec5a9023"
+    },
+    {
+      "version": "17.26.2",
+      "downloadURL": "https://github.com/frida/frida/releases/download/17.26.2/frida_17.26.2_iphoneos-arm64.deb",
+      "sha256": "sha256:9ba9a7454b1b51250b1f2d24d4071108e413c4cf7bc18badd54bf10e0c8095cc"
+    },
+    {
+      "version": "17.26.1",
+      "downloadURL": "https://github.com/frida/frida/releases/download/17.26.1/frida_17.26.1_iphoneos-arm64.deb",
+      "sha256": "sha256:84411ac3b6b67aaa981462c41f9f886f0a61733e2b004133a7561a7816e63ade"
+    },
+    {
+      "version": "17.26.0",
+      "downloadURL": "https://github.com/frida/frida/releases/download/17.26.0/frida_17.26.0_iphoneos-arm64.deb",
+      "sha256": "sha256:a680fffb70cafbf6aa55c2599595bc1441fb684d8f2d1f6b25e824af027693ad"
+    }
+  ],
+  "lastChecked": 817123947.470101
+}

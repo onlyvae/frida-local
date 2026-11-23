@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+for label in dev.fridalocal.service dev.fridalocal.service16; do
+    plist="/Library/LaunchDaemons/$label.plist"
+    launchctl unload "$plist" >/dev/null 2>&1 || true
+done
+/usr/bin/fridalocald --reap-orphans || true
+for label in dev.fridalocal.service dev.fridalocal.service16; do
+    launchctl load "/Library/LaunchDaemons/$label.plist"
+done
+uicache -p /Applications/FridaLocal.app
