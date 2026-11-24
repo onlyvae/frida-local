@@ -5,6 +5,7 @@ NS_ASSUME_NONNULL_BEGIN
 NSString *FLPath(NSString *path);
 BOOL FLProcessMatches(pid_t pid, NSString *executable);
 NSInteger FLReapManagedOrphans(void);
+NSInteger FLSelectedProtocolMajor(void);
 
 @interface FLRuntime : NSObject
 - (NSDictionary *)status;

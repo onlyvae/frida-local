@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 #if !FL_DEVICE_SMOKE
@@ -105,7 +106,9 @@ private struct RootView: View {
         }
         .sheet(item: $presentedScript) { script in
             NavigationView {
-                ScriptDetails(script: script) { selection = .console }
+                ScriptDetails(script: script, opensInSpawn: !library.recentApps(for: script).isEmpty) {
+                    selection = .console
+                }
             }
             .navigationViewStyle(.stack)
         }
@@ -133,10 +136,27 @@ private struct ScriptDetails: View {
     let script: LocalScript
     let onRun: () -> Void
     @AppStorage("thirdPartyTargetsOnly") private var thirdPartyOnly = true
-    @State private var selected: TargetInventoryEntry?
-    @State private var spawn = false
+    @State private var selectedApp: TargetInventoryEntry?
+    @State private var selectedProcess: TargetInventoryEntry?
+    @State private var spawn: Bool
     @State private var confirmingDelete = false
     @State private var error: String?
+
+    init(script: LocalScript, opensInSpawn: Bool, onRun: @escaping () -> Void) {
+        self.script = script
+        self.onRun = onRun
+        _spawn = State(initialValue: opensInSpawn)
+    }
+
+    private var selected: TargetInventoryEntry? {
+        let entry = spawn ? selectedApp : selectedProcess
+        return !thirdPartyOnly || entry?.isThirdParty == true ? entry : nil
+    }
+
+    private var appToRestore: String? {
+        guard spawn, service.connected else { return nil }
+        return library.recentApps(for: script).first
+    }
 
     private var canRun: Bool {
         guard let selected else { return false }
@@ -154,9 +174,10 @@ private struct ScriptDetails: View {
 
                 NavigationLink {
                     ScriptTargetPicker(spawn: spawn, selectionID: selected?.id,
+                                       recentAppIDs: spawn ? library.recentApps(for: script) : [],
                                        thirdPartyOnly: $thirdPartyOnly,
                                        load: { try await service.listTargets(spawn: $0) },
-                                       select: { selected = $0 })
+                                       select: selectTarget)
                 } label: {
                     HStack {
                         Text("目标")
@@ -203,16 +224,21 @@ private struct ScriptDetails: View {
                 Button(action: viewScript) {
                     Label("查看", systemImage: "doc.text")
                 }
-                Button("删除脚本", role: .destructive) { confirmingDelete = true }
+                Button(role: .destructive) {
+                    confirmingDelete = true
+                } label: {
+                    Label("删除", systemImage: "trash")
+                }
             }
         }
         .navigationTitle(script.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } } }
-        .onChange(of: spawn) { _ in selected = nil }
+        .onChange(of: spawn) { _ in selectedProcess = nil }
         .onChange(of: thirdPartyOnly) { enabled in
-            if enabled && selected?.isThirdParty == false { selected = nil }
+            if enabled && selectedProcess?.isThirdParty == false { selectedProcess = nil }
         }
+        .task(id: appToRestore) { await restoreApp() }
         .confirmationDialog("删除此脚本？", isPresented: $confirmingDelete, titleVisibility: .visible) {
             Button("删除", role: .destructive) {
                 do { try library.delete(script); dismiss() } catch { self.error = error.localizedDescription }
@@ -224,6 +250,23 @@ private struct ScriptDetails: View {
         )) {
             Button("好", role: .cancel) { }
         } message: { Text(error ?? service.operationError ?? "") }
+    }
+
+    private func selectTarget(_ entry: TargetInventoryEntry) {
+        if spawn {
+            guard let bundleID = entry.bundleID else { return }
+            selectedApp = entry
+            library.recordAppSelection(bundleID, for: script)
+        } else {
+            selectedProcess = entry
+        }
+    }
+
+    private func restoreApp() async {
+        guard let bundleID = appToRestore, selectedApp == nil,
+              let apps = try? await service.listTargets(spawn: true),
+              !Task.isCancelled, selectedApp == nil else { return }
+        selectedApp = apps.first { $0.bundleID == bundleID }
     }
 
     private func viewScript() {
@@ -240,8 +283,10 @@ private struct ScriptDetails: View {
 
 private struct ScriptTargetPicker: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.displayScale) private var displayScale
     let spawn: Bool
     let selectionID: String?
+    let recentAppIDs: [String]
     @Binding var thirdPartyOnly: Bool
     let load: (Bool) async throws -> [TargetInventoryEntry]
     let select: (TargetInventoryEntry) -> Void
@@ -266,6 +311,10 @@ private struct ScriptTargetPicker: View {
     }
 
     var body: some View {
+        let visible = visible
+        let recent = recentAppIDs.compactMap { bundleID in visible.first { $0.bundleID == bundleID } }
+        let recentIDs = Set(recent.map(\.id))
+
         List {
             Section {
                 Toggle("仅第三方 App", isOn: $thirdPartyOnly)
@@ -274,35 +323,66 @@ private struct ScriptTargetPicker: View {
                 Text(error).font(.footnote).foregroundStyle(.secondary)
             }
             if entries.isEmpty && (loading || !loaded) && error == nil {
-                ProgressView("正在读取目标…")
+                VStack(spacing: 6) {
+                    ProgressView()
+                        .accessibilityHidden(true)
+                    Text("正在读取目标…")
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
             } else if visible.isEmpty && error == nil {
                 Text(emptyMessage).foregroundStyle(.secondary)
             }
-            ForEach(visible) { entry in
-                Button {
-                    select(entry)
-                    dismiss()
-                } label: {
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(entry.name).foregroundStyle(.primary)
-                            Text(entry.detail).font(.footnote).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        if entry.id == selectionID {
-                            Image(systemName: "checkmark").foregroundStyle(Color.accentColor)
-                        }
-                    }
-                    .contentShape(Rectangle())
+            if !recent.isEmpty {
+                Section("最近选择") {
+                    ForEach(recent, content: targetRow)
                 }
-                .buttonStyle(.plain)
             }
+            ForEach(visible.filter { !recentIDs.contains($0.id) }, content: targetRow)
         }
         .navigationTitle(spawn ? "选择应用" : "选择进程")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $search, prompt: spawn ? "搜索名称或 Bundle ID" : "搜索名称或 PID")
         .task { if !loaded { await reload() } }
         .refreshable { await reload() }
+    }
+
+    private func targetRow(_ entry: TargetInventoryEntry) -> some View {
+        Button {
+            select(entry)
+            dismiss()
+        } label: {
+            HStack(spacing: 12) {
+                targetIcon(entry)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(entry.name).foregroundStyle(.primary)
+                    Text(entry.detail).font(.footnote).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if entry.id == selectionID {
+                    Image(systemName: "checkmark").foregroundStyle(Color.accentColor)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func targetIcon(_ entry: TargetInventoryEntry) -> some View {
+        Group {
+            if let icon = AppIcon.image(for: entry, scale: displayScale) {
+                Image(uiImage: icon).renderingMode(.original).resizable().scaledToFit()
+            } else {
+                Image(systemName: spawn ? "app" : "gearshape")
+                    .font(.system(size: 18))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color(uiColor: .tertiarySystemFill))
+            }
+        }
+        .frame(width: 36, height: 36)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .accessibilityHidden(true)
     }
 
     private func reload() async {

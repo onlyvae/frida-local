@@ -37,7 +37,6 @@ struct ConsoleView: View {
 
 struct ServerSettingsView: View {
     @EnvironmentObject private var service: ServiceClient
-    @AppStorage("thirdPartyTargetsOnly") private var thirdPartyOnly = true
     @State private var address = ListenAddress.loopback
     @State private var portText = ""
     @State private var confirmingStop = false
@@ -105,9 +104,6 @@ struct ServerSettingsView: View {
                 } else if service.status.running {
                     Text("保存配置会重启服务。")
                 }
-            }
-            Section("设备") {
-                Toggle("仅第三方 App", isOn: $thirdPartyOnly)
             }
         }
         .navigationTitle("设置")

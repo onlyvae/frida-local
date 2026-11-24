@@ -4,10 +4,10 @@
 
 ## 使用
 
-1. 安装 `packages/dev.fridalocal_0.2.8_iphoneos-arm64e.deb`，打开 **Frida Local**。
-2. 在「设置」的「Frida Server」中启动服务。地址可选 `127.0.0.1`（仅本机）或 `0.0.0.0`（所有 IPv4 接口），默认端口为 `27042`。地址与端口一起保存。
+1. 安装 `packages/dev.fridalocal_0.2.8_iphoneos-arm64e.deb`。安装完成后会启动所选版本的 `frida-server`，然后即可打开 **Frida Local**。
+2. 在「设置」的「Frida Server」中查看状态、启停服务或修改监听设置。首次安装默认监听 `127.0.0.1:27042`。也可选择 `0.0.0.0`（所有 IPv4 接口），地址与端口一起保存。
 3. 在「脚本」从「文件」导入一个 UTF-8 `.js`，或使用「导入示例」。
-4. 打开脚本。**Attach** 选择运行中的进程，**Spawn** 选择已安装的应用。默认仅显示第三方 App 及其进程。可在「设置」→「设备」或目标选择页关闭「仅第三方 App」，然后搜索或浏览全部目标（含系统进程）。选中任意目标即可运行。
+4. 打开脚本。**Attach** 选择运行中的进程，**Spawn** 选择已安装的应用。默认仅显示第三方 App 及其进程。可在目标选择页关闭「仅第三方 App」，然后搜索或浏览全部目标（含系统进程）。选中任意目标即可运行。
 5. 在弹窗的「文件」区选择「查看」，可以在 Filza 定位脚本的 `.js` 副本。 [Filza 使用指南](https://www.tigisoftware.com/default/?page_id=177)
 6. 在「日志」查看输出、异常和退出事件。点「停止会话」卸载脚本并断开连接。
 
@@ -29,6 +29,6 @@ make clean
 make package FINALPACKAGE=1
 ```
 
-`make deps` 下载并验证 Frida 16.7.19、17.27.4 的 iOS Core SDK，以及默认的 17.27.4 服务端。发行包包含两个协议主版本的客户端和服务管理 helper。服务由 App 手动启停，端口配置跨重启保留。 [Frida 17.27.4 发行文件](https://github.com/frida/frida/releases/tag/17.27.4)
+`make deps` 下载并验证 Frida 16.7.19、17.27.4 的 iOS Core SDK，以及默认的 17.27.4 服务端。发行包包含两个协议主版本的客户端和服务管理 helper。安装或升级时沿用已保存的版本和监听设置。 [Frida 17.27.4 发行文件](https://github.com/frida/frida/releases/tag/17.27.4)
 
 真机自动化验收入口在清理构建目录后通过 `make package FINALPACKAGE=1 DEVICE_SMOKE=1` 编译。验收构建安装后，以设备的 `mobile` 用户运行 `/Applications/FridaLocal.app/FridaLocal --device-smoke`。也可用 `--catalog-smoke` 验证 GitHub 刷新、下载和跨版本脚本会话，用 `--listener-smoke` 验证监听设置与启动日志，或用 `--targets-smoke` 验证目标列表和 Filza 文件链接。清理后重新执行正常构建即可生成正式包。

@@ -64,7 +64,13 @@ func runDeviceSmoke(library: ScriptLibrary, service: ServiceClient, headless: Bo
             if service.connected { break }
             try await Task.sleep(nanoseconds: 350_000_000)
         }
-        try require(service.connected && !service.status.running, "App → idle Mach XPC service")
+        try require(service.connected, "App → Mach XPC service")
+        if headless {
+            try require(service.status.running, "frida-server started during package installation")
+        }
+        original = service.status
+        await service.stopServer()
+        try require(!service.status.running, "stop server before changing settings")
         guard let url = Bundle.main.url(forResource: "hello", withExtension: "js") else {
             throw DeviceSmokeError.failed("sample missing")
         }
@@ -72,7 +78,6 @@ func runDeviceSmoke(library: ScriptLibrary, service: ServiceClient, headless: Bo
         sample = script
         let coldLibrary = ScriptLibrary()
         try require(coldLibrary.scripts.contains(script), "import and reload script from disk")
-        original = service.status
         await service.setListener(address: .loopback, port: service.status.port)
         await service.startServer()
         try require(service.status.running, "authenticated frida-server on loopback")
@@ -93,6 +98,10 @@ func runDeviceSmoke(library: ScriptLibrary, service: ServiceClient, headless: Bo
         await service.stopServer()
         await service.setListener(address: original.address, port: original.port)
         record(service.status.running ? "FAIL service still running" : "PASS stop server")
+        if original.running {
+            await service.startServer()
+            record(service.status.running ? "PASS restore running server" : "FAIL restore running server")
+        }
     }
     record("DONE")
     return !lines.contains { $0.hasPrefix("FAIL ") }
@@ -109,6 +118,7 @@ private func runTargetsSmoke(service: ServiceClient) async -> Bool {
     let library = ScriptLibrary()
     var imported: LocalScript?
     var started = false
+    var originallyRunning = false
     var passed = false
     do {
         guard let example = Bundle.main.url(forResource: "hello", withExtension: "js") else {
@@ -126,6 +136,8 @@ private func runTargetsSmoke(service: ServiceClient) async -> Bool {
         try require(!FileManager.default.fileExists(atPath: link.path), "delete the managed viewing copy with the script record")
 
         await service.poll()
+        originallyRunning = service.status.running
+        if originallyRunning { await service.stopServer() }
         try require(service.connected && !service.status.running, "connect to the idle management service")
         let idleProcesses = try await service.listTargets(spawn: false)
         try require(!idleProcesses.isEmpty && idleProcesses.allSatisfy { $0.pid != nil },
@@ -143,6 +155,12 @@ private func runTargetsSmoke(service: ServiceClient) async -> Bool {
                         && processes.contains { $0.pid == 1 && !$0.isThirdParty }
                         && processes.allSatisfy { $0.thirdParty != nil },
                         "classify running app processes and system processes")
+            try require(processes.first { $0.pid == ownPID }?.iconBundleID == "dev.fridalocal.app"
+                        && processes.first { $0.pid == 1 }?.iconBundleID == nil,
+                        "associate app processes with installed app icons")
+            let settings = apps.first { $0.bundleID == "com.apple.Preferences" }
+            try require(settings.flatMap { AppIcon.image(for: $0, scale: 2) } != nil,
+                        "load the Settings app icon locally")
         }
         try checkThirdParty(apps: idleApps, processes: idleProcesses)
         await service.startServer()
@@ -157,6 +175,13 @@ private func runTargetsSmoke(service: ServiceClient) async -> Bool {
         print("FAIL \(error)")
     }
     if started { await service.stopServer() }
+    if originallyRunning {
+        await service.startServer()
+        if !service.status.running {
+            print("FAIL restore running server")
+            passed = false
+        }
+    }
     if let imported { try? library.delete(imported) }
     return passed
 }
@@ -172,8 +197,8 @@ private func runListenerSmoke(service: ServiceClient) async -> Bool {
     }
 
     await service.poll()
-    guard service.connected, !service.status.running else {
-        print("FAIL listener smoke needs the connected app service to be stopped")
+    guard service.connected else {
+        print("FAIL connect to the app service")
         return false
     }
     let original = service.status
@@ -182,6 +207,7 @@ private func runListenerSmoke(service: ServiceClient) async -> Bool {
     var listener: Int32 = -1
     var passed = false
     do {
+        if original.running { await service.stopServer() }
         await service.setListener(address: .loopback, port: original.port)
         try require(!service.status.running && service.status.port == original.port && service.status.address == .loopback,
                     "save address and port while stopped")
@@ -250,8 +276,9 @@ private func runListenerSmoke(service: ServiceClient) async -> Bool {
         _ = await service.selectVersion(originalRelease)
     }
     await service.setListener(address: original.address, port: original.port)
+    if original.running { await service.startServer() }
     let restored = service.status.version == original.version && service.status.address == original.address
-        && service.status.port == original.port && !service.status.running
+        && service.status.port == original.port && service.status.running == original.running
     print(restored ? "PASS restore original settings" : "FAIL restore original settings")
     return restored && passed
 }

@@ -67,7 +67,21 @@ final class ScriptLibrary: ObservableObject {
     func delete(_ script: LocalScript) throws {
         try FileManager.default.removeItem(at: location(of: script.id))
         scripts.removeAll { $0.id == script.id }
+        UserDefaults.standard.removeObject(forKey: recentAppsKey(for: script))
         try? FileManager.default.removeItem(at: viewingFolder(for: script.id))
+    }
+
+    func recentApps(for script: LocalScript) -> [String] {
+        UserDefaults.standard.stringArray(forKey: recentAppsKey(for: script)) ?? []
+    }
+
+    func recordAppSelection(_ bundleID: String, for script: LocalScript) {
+        let previous = recentApps(for: script).filter { $0 != bundleID }
+        UserDefaults.standard.set([bundleID] + previous, forKey: recentAppsKey(for: script))
+    }
+
+    private func recentAppsKey(for script: LocalScript) -> String {
+        "recentApps.\(script.id.uuidString)"
     }
 
     private func reload() throws {

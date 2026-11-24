@@ -9,3 +9,6 @@ for label in dev.fridalocal.service dev.fridalocal.service16; do
     launchctl load "/Library/LaunchDaemons/$label.plist"
 done
 uicache -p /Applications/FridaLocal.app
+if ! /usr/bin/fridalocald --start-installed-server; then
+    echo 'Frida Local is installed. Start the server manually in the app after resolving the startup error.' >&2
+fi

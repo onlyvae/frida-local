@@ -46,6 +46,20 @@ NSString *FLPath(NSString *path) {
     return jbroot(path);
 }
 
+static NSString *FLSettingsPath(void) {
+    return [FLPath(FLStateDirectory) stringByAppendingPathComponent:@"settings.plist"];
+}
+
+static NSString *FLSelectedVersion(NSDictionary *settings) {
+    NSString *version = settings[@"version"];
+    NSInteger major = [version isKindOfClass:NSString.class] ? FLReleaseMajor(version) : 0;
+    return major == 16 || major == 17 ? version : FLBundledVersion;
+}
+
+NSInteger FLSelectedProtocolMajor(void) {
+    return FLReleaseMajor(FLSelectedVersion([NSDictionary dictionaryWithContentsOfFile:FLSettingsPath()]));
+}
+
 BOOL FLProcessMatches(pid_t pid, NSString *executable) {
     char path[4096] = {0};
     if (pid < 2 || proc_pidpath(pid, path, sizeof(path)) <= 0) return NO;
@@ -72,28 +86,25 @@ static NSString *FLCanonicalPath(const char *path) {
     return [NSFileManager.defaultManager stringWithFileSystemRepresentation:resolved length:strlen(resolved)];
 }
 
-static NSString *FLThirdPartyAppPath(FridaApplication *app, NSString *bundle, NSString *jailbreakAppsPrefix) {
-    if ([bundle.lowercaseString hasPrefix:@"com.apple."]) return nil;
+static NSString *FLApplicationPath(FridaApplication *app) {
     GHashTable *parameters = frida_application_get_parameters(app);
     GVariant *value = parameters ? g_hash_table_lookup(parameters, "path") : NULL;
     if (!value || !g_variant_is_of_type(value, G_VARIANT_TYPE_STRING)) return nil;
     NSString *path = FLCanonicalPath(g_variant_get_string(value, NULL));
-    if (![path.pathExtension.lowercaseString isEqualToString:@"app"]) return nil;
-    if ([path hasPrefix:@"/private/var/containers/Bundle/Application/"]
-        || [path hasPrefix:@"/var/containers/Bundle/Application/"]
-        || (jailbreakAppsPrefix && [path hasPrefix:jailbreakAppsPrefix])) return path;
-    return nil;
+    return [path.pathExtension.lowercaseString isEqualToString:@"app"] ? path : nil;
 }
 
-static BOOL FLIsThirdPartyAppProcess(pid_t pid, NSSet<NSString *> *appPaths) {
+static BOOL FLIsThirdPartyApp(NSString *path, NSString *bundle, NSString *jailbreakAppsPrefix) {
+    if ([bundle.lowercaseString hasPrefix:@"com.apple."]) return NO;
+    return [path hasPrefix:@"/private/var/containers/Bundle/Application/"]
+        || [path hasPrefix:@"/var/containers/Bundle/Application/"]
+        || (jailbreakAppsPrefix && [path hasPrefix:jailbreakAppsPrefix]);
+}
+
+static NSString *FLTargetExecutablePath(pid_t pid) {
     char path[4096] = {0};
-    if (pid < 2 || !appPaths.count || proc_pidpath(pid, path, sizeof(path)) <= 0) return NO;
-    NSString *executable = FLCanonicalPath(path);
-    for (NSString *directory = executable.stringByDeletingLastPathComponent;
-         directory.length > 1; directory = directory.stringByDeletingLastPathComponent) {
-        if ([appPaths containsObject:directory]) return YES;
-    }
-    return NO;
+    if (pid < 2 || proc_pidpath(pid, path, sizeof(path)) <= 0) return nil;
+    return FLCanonicalPath(path);
 }
 
 static BOOL FLIsManagedOrphan(const struct kinfo_proc *process, NSSet<NSString *> *paths) {
@@ -308,16 +319,6 @@ static void FLDetached(FridaSession *session, FridaSessionDetachReason reason, F
     return self;
 }
 
-- (NSString *)settingsPath {
-    return [FLPath(FLStateDirectory) stringByAppendingPathComponent:@"settings.plist"];
-}
-
-- (NSString *)selectedVersion:(NSDictionary *)settings {
-    NSString *version = settings[@"version"];
-    NSInteger major = [version isKindOfClass:NSString.class] ? FLReleaseMajor(version) : 0;
-    return major == 16 || major == 17 ? version : FLBundledVersion;
-}
-
 - (NSString *)persistAddress:(NSString *)address port:(NSInteger)port version:(NSString *)version {
     NSError *error;
     if (![[NSFileManager defaultManager] createDirectoryAtPath:FLPath(FLStateDirectory)
@@ -326,7 +327,7 @@ static void FLDetached(FridaSession *session, FridaSessionDetachReason reason, F
     }
     NSData *data = [NSPropertyListSerialization dataWithPropertyList:@{ @"address": address, @"port": @(port), @"version": version }
                      format:NSPropertyListBinaryFormat_v1_0 options:0 error:&error];
-    if (!data || ![data writeToFile:[self settingsPath] options:NSDataWritingAtomic error:&error]) {
+    if (!data || ![data writeToFile:FLSettingsPath() options:NSDataWritingAtomic error:&error]) {
         return error.localizedDescription ?: @"无法保存配置。";
     }
     return nil;
@@ -335,14 +336,14 @@ static void FLDetached(FridaSession *session, FridaSessionDetachReason reason, F
 - (NSDictionary *)status {
     [self refreshServer];
     if (_session && frida_session_is_detached(_session)) [self closeSession];
-    NSDictionary *settings = [NSDictionary dictionaryWithContentsOfFile:[self settingsPath]];
+    NSDictionary *settings = [NSDictionary dictionaryWithContentsOfFile:FLSettingsPath()];
     if (_serverPID <= 0) {
         NSInteger saved = [settings[@"port"] integerValue];
         _port = saved >= 1024 && saved <= 65535 ? saved : FLDefaultPort;
         _address = [settings[@"address"] isEqual:FLAllInterfacesAddress] ? FLAllInterfacesAddress : FLLoopbackAddress;
     }
     NSMutableDictionary *status = [@{ @"running": (_serverPID > 0 && _device != NULL && !_stoppingServer) ? @YES : @NO,
-        @"address": _address, @"port": @(_port), @"version": [self selectedVersion:settings], @"installedVersions": FLInstalledReleases() } mutableCopy];
+        @"address": _address, @"port": @(_port), @"version": FLSelectedVersion(settings), @"installedVersions": FLInstalledReleases() } mutableCopy];
     if (_session) {
         status[@"sessionPID"] = @(frida_session_get_pid(_session));
         status[@"sessionName"] = _sessionName;
@@ -643,6 +644,9 @@ static void FLDetached(FridaSession *session, FridaSessionDetachReason reason, F
 
     NSMutableArray *rows = [NSMutableArray new];
     NSMutableSet<NSString *> *thirdPartyAppPaths = [NSMutableSet new];
+    NSMutableDictionary<NSString *, NSString *> *bundleIDsByPath = [NSMutableDictionary new];
+    NSMutableDictionary<NSString *, NSString *> *pathsByBundleID = [NSMutableDictionary new];
+    NSMutableDictionary<NSNumber *, NSString *> *bundleIDsByPID = [NSMutableDictionary new];
     NSString *jailbreakApps = FLCanonicalPath(FLPath(@"/Applications").fileSystemRepresentation);
     NSString *jailbreakAppsPrefix = [jailbreakApps isEqualToString:@"/Applications"] ? nil
         : [jailbreakApps stringByAppendingString:@"/"];
@@ -650,15 +654,23 @@ static void FLDetached(FridaSession *session, FridaSessionDetachReason reason, F
         FridaApplication *app = frida_application_list_get(applications, index);
         NSString *bundle = FLText(frida_application_get_identifier(app));
         NSString *name = FLText(frida_application_get_name(app));
-        NSString *thirdPartyPath = bundle.length ? FLThirdPartyAppPath(app, bundle, jailbreakAppsPrefix) : nil;
+        NSString *appPath = bundle.length ? FLApplicationPath(app) : nil;
+        guint appPID = frida_application_get_pid(app);
         g_object_unref(app);
         if (!bundle.length) continue;
+        BOOL thirdParty = FLIsThirdPartyApp(appPath, bundle, jailbreakAppsPrefix);
         if (!spawn) {
-            if (thirdPartyPath) [thirdPartyAppPaths addObject:thirdPartyPath];
+            if (appPath) {
+                bundleIDsByPath[appPath] = bundle;
+                pathsByBundleID[bundle] = appPath;
+                if (thirdParty) [thirdPartyAppPaths addObject:appPath];
+            }
+            if (appPID > 1) bundleIDsByPID[@(appPID)] = bundle;
             continue;
         }
-        NSDictionary *row = @{ @"id": bundle, @"name": name.length ? name : bundle,
-                                @"bundleID": bundle, @"thirdParty": thirdPartyPath ? @YES : @NO };
+        NSMutableDictionary *row = [@{ @"id": bundle, @"name": name.length ? name : bundle,
+                                       @"bundleID": bundle, @"thirdParty": @(thirdParty) } mutableCopy];
+        if (appPath) row[@"iconBundlePath"] = appPath;
         [rows addObject:row];
     }
     g_object_unref(applications);
@@ -669,9 +681,21 @@ static void FLDetached(FridaSession *session, FridaSessionDetachReason reason, F
             NSString *name = FLText(frida_process_get_name(process));
             g_object_unref(process);
             NSString *identifier = [NSString stringWithFormat:@"%u", pid];
-            BOOL thirdParty = FLIsThirdPartyAppProcess((pid_t)pid, thirdPartyAppPaths);
-            NSDictionary *row = @{ @"id": identifier, @"name": name.length ? name : identifier,
-                                    @"pid": @(pid), @"thirdParty": thirdParty ? @YES : @NO };
+            NSString *executable = FLTargetExecutablePath((pid_t)pid);
+            NSString *iconBundleID = bundleIDsByPID[@(pid)];
+            BOOL thirdParty = NO;
+            for (NSString *directory = executable.stringByDeletingLastPathComponent;
+                 directory.length > 1; directory = directory.stringByDeletingLastPathComponent) {
+                if (!iconBundleID) iconBundleID = bundleIDsByPath[directory];
+                if ([thirdPartyAppPaths containsObject:directory]) thirdParty = YES;
+            }
+            NSMutableDictionary *row = [@{ @"id": identifier, @"name": name.length ? name : identifier,
+                                           @"pid": @(pid), @"thirdParty": @(thirdParty) } mutableCopy];
+            if (iconBundleID) {
+                row[@"iconBundleID"] = iconBundleID;
+                NSString *appPath = pathsByBundleID[iconBundleID];
+                if (appPath) row[@"iconBundlePath"] = appPath;
+            }
             [rows addObject:row];
         }
         g_object_unref(processes);

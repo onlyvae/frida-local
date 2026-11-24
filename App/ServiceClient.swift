@@ -6,6 +6,8 @@ struct TargetInventoryEntry: Decodable, Identifiable {
     let pid: Int?
     let bundleID: String?
     let thirdParty: Bool?
+    let iconBundleID: String?
+    let iconBundlePath: String?
 
     var isThirdParty: Bool { thirdParty == true }
 

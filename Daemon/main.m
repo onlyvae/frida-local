@@ -1,6 +1,7 @@
 #import <Foundation/Foundation.h>
 #import <Security/Security.h>
 #import <bsm/audit.h>
+#include <unistd.h>
 #import "Runtime.h"
 #import "ReleaseAssets.h"
 #import "../Shared/LocalFridaService.h"
@@ -26,7 +27,41 @@ static BOOL FLAuthorize(NSXPCConnection *connection) {
 
 typedef void (^FLReply)(NSData * _Nullable, NSString * _Nullable);
 
-@interface FLService : NSObject <LocalFridaService>
+@protocol FLInstallService
+- (void)startServerWithReply:(FLReply)reply;
+@end
+
+static int FLStartInstalledServer(void) {
+    NSXPCConnection *connection = geteuid() == 0 ? FLCreateServiceConnection(FLSelectedProtocolMajor()) : nil;
+    if (!connection) {
+        fputs("Unable to open the Frida Local installation service.\n", stderr);
+        return EXIT_FAILURE;
+    }
+    connection.remoteObjectInterface = [NSXPCInterface interfaceWithProtocol:@protocol(FLInstallService)];
+    [connection resume];
+
+    dispatch_semaphore_t finished = dispatch_semaphore_create(0);
+    __block NSString *failure = nil;
+    id<FLInstallService> service = [connection remoteObjectProxyWithErrorHandler:^(NSError *error) {
+        failure = error.localizedDescription;
+        dispatch_semaphore_signal(finished);
+    }];
+    [service startServerWithReply:^(NSData *data, NSString *error) {
+        failure = error ?: (data ? nil : @"Startup returned no status.");
+        dispatch_semaphore_signal(finished);
+    }];
+
+    if (dispatch_semaphore_wait(finished, dispatch_time(DISPATCH_TIME_NOW, 15 * NSEC_PER_SEC)) != 0) {
+        [connection invalidate];
+        fputs("Timed out waiting for Frida Local to start.\n", stderr);
+        return EXIT_FAILURE;
+    }
+    [connection invalidate];
+    if (failure) fprintf(stderr, "%s\n", failure.UTF8String);
+    return failure ? EXIT_FAILURE : EXIT_SUCCESS;
+}
+
+@interface FLService : NSObject <LocalFridaService, FLInstallService>
 - (instancetype)initWithRuntime:(FLRuntime *)runtime queue:(dispatch_queue_t)queue owner:(NSUUID *)owner;
 @end
 
@@ -134,9 +169,11 @@ typedef void (^FLReply)(NSData * _Nullable, NSString * _Nullable);
 }
 
 - (BOOL)listener:(NSXPCListener *)listener shouldAcceptNewConnection:(NSXPCConnection *)connection {
-    if (!FLAuthorize(connection)) return NO;
+    BOOL installer = connection.effectiveUserIdentifier == 0
+        && FLProcessMatches(connection.processIdentifier, @"/usr/bin/fridalocald");
+    if (!installer && !FLAuthorize(connection)) return NO;
     NSUUID *owner = [NSUUID UUID];
-    connection.exportedInterface = [NSXPCInterface interfaceWithProtocol:@protocol(LocalFridaService)];
+    connection.exportedInterface = [NSXPCInterface interfaceWithProtocol:installer ? @protocol(FLInstallService) : @protocol(LocalFridaService)];
     connection.exportedObject = [[FLService alloc] initWithRuntime:_runtime queue:_queue owner:owner];
     connection.invalidationHandler = ^{
         dispatch_async(self->_queue, ^{ [self->_runtime clientDisconnected:owner]; });
@@ -153,6 +190,7 @@ int main(int argc, const char *argv[]) {
             if (reaped > 0) printf("Cleaned up %ld orphaned Frida Local server process(es).\n", (long)reaped);
             return reaped >= 0 ? EXIT_SUCCESS : EXIT_FAILURE;
         }
+        if (argc == 2 && strcmp(argv[1], "--start-installed-server") == 0) return FLStartInstalledServer();
         FLListener *delegate = [FLListener new];
         NSXPCListener *listener = FLCreateServiceListener(FL_PROTOCOL_MAJOR);
         if (!listener) return EXIT_FAILURE;
