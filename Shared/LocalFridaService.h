@@ -11,6 +11,8 @@ NS_ASSUME_NONNULL_BEGIN
     NS_SWIFT_NAME(stopServer(reply:));
 - (void)updateAddress:(NSString *)address port:(NSInteger)port withReply:(void (^)(NSData * _Nullable, NSString * _Nullable))reply
     NS_SWIFT_NAME(updateAddress(_:port:reply:));
+- (void)updateOverlayTransparency:(double)transparency withReply:(void (^)(NSData * _Nullable, NSString * _Nullable))reply
+    NS_SWIFT_NAME(updateOverlayTransparency(_:reply:));
 - (void)installVersion:(NSString *)version checksum:(NSString * _Nullable)checksum
              withReply:(void (^)(NSData * _Nullable, NSString * _Nullable))reply
     NS_SWIFT_NAME(installVersion(_:checksum:reply:));

@@ -35,6 +35,7 @@ struct ServerStatus: Decodable {
     var sessionPID: Int?
     var sessionName: String?
     var serverError: String?
+    var overlayTransparency: Double?
 }
 
 struct LogEntry: Decodable, Identifiable {
@@ -71,6 +72,7 @@ final class ServiceClient: ObservableObject {
     @Published private(set) var pendingVersion: String?
     @Published private(set) var isDownloading = false
     @Published private(set) var downloadProgress: ReleaseDownloadProgress?
+    @Published private(set) var pendingOverlayTransparency: Double?
 
     private var connections: [Int: NSXPCConnection] = [:]
     private var currentMajor = 17
@@ -78,6 +80,7 @@ final class ServiceClient: ObservableObject {
     private var cursor = 0
     private var polling = false
     private var revision = 0
+    private var savingOverlayTransparency = false
 
     private typealias Reply = @Sendable (Data?, String?) -> Void
     private typealias Operation = (LocalFridaService, @escaping Reply) -> Void
@@ -102,6 +105,35 @@ final class ServiceClient: ObservableObject {
         await operate { $0.updateAddress(address.rawValue, port: port, reply: $1) }
     }
     func stopSession() async { await operate { $0.stopSession(reply: $1) } }
+
+    var overlayTransparency: Double { pendingOverlayTransparency ?? status.overlayTransparency ?? 0 }
+
+    func setOverlayTransparency(_ value: Double) {
+        pendingOverlayTransparency = value
+        guard !savingOverlayTransparency else { return }
+        savingOverlayTransparency = true
+        Task { await saveOverlayTransparency() }
+    }
+
+    private func saveOverlayTransparency() async {
+        defer { savingOverlayTransparency = false }
+        while let value = pendingOverlayTransparency {
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            guard pendingOverlayTransparency == value else { continue }
+            do {
+                let data = try await request { $0.updateOverlayTransparency(value, reply: $1) }
+                let saved = try JSONDecoder().decode(ServerStatus.self, from: data)
+                guard let transparency = saved.overlayTransparency else {
+                    throw ServiceError(message: "管理服务没有返回已保存的浮层透明度。")
+                }
+                revision += 1
+                status.overlayTransparency = transparency
+            } catch {
+                if pendingOverlayTransparency == value { operationError = error.localizedDescription }
+            }
+            if pendingOverlayTransparency == value { pendingOverlayTransparency = nil }
+        }
+    }
 
     func listTargets(spawn: Bool) async throws -> [TargetInventoryEntry] {
         let data = try await request(to: currentMajor) { $0.listTargets(spawn: spawn, reply: $1) }

@@ -6,7 +6,7 @@ export FL_VERSION := 17.27.4
 
 include $(THEOS)/makefiles/common.mk
 
-SUBPROJECTS := App Daemon
+SUBPROJECTS := App Daemon Overlay
 
 include $(THEOS_MAKE_PATH)/aggregate.mk
 

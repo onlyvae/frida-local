@@ -1,5 +1,7 @@
 #import <UIKit/UIKit.h>
 #import "../Shared/LocalFridaService.h"
+#import "../Shared/ScriptOverlayService.h"
+#import "../Shared/TerminalLog.h"
 
 @interface UIImage (FLInstalledApplicationIcon)
 + (UIImage * _Nullable)_applicationIconImageForBundleIdentifier:(NSString * _Nonnull)bundleID

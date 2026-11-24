@@ -1,6 +1,6 @@
 Package: dev.fridalocal
 Name: Frida Local
-Version: 0.2.8
+Version: 0.2.9
 Architecture: iphoneos-arm64e
 Description: Local Frida script console for any app or process on Roothide.
 Maintainer: Frida Local

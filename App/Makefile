@@ -4,6 +4,7 @@ include $(THEOS)/makefiles/common.mk
 
 APPLICATION_NAME := FridaLocal
 FridaLocal_FILES := FridaLocalApp.swift AppIcon.swift ScriptLibrary.swift ServiceClient.swift ServiceViews.swift ReleaseCatalog.swift VersionListView.swift ../Shared/LocalFridaService.m
+FridaLocal_FILES += ../Shared/TerminalLog.m
 FridaLocal_FRAMEWORKS := SwiftUI UIKit UniformTypeIdentifiers
 FridaLocal_CFLAGS := -fobjc-arc -fmodules-cache-path=$(THEOS_PROJECT_DIR)/.theos/clang-cache
 FridaLocal_SWIFTFLAGS := -module-cache-path $(THEOS_PROJECT_DIR)/.theos/modulecache -import-objc-header FridaLocal-Bridging-Header.h

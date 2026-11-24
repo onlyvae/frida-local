@@ -5,6 +5,7 @@
 #import "Runtime.h"
 #import "ReleaseAssets.h"
 #import "../Shared/LocalFridaService.h"
+#import "../Shared/ScriptOverlayService.h"
 
 typedef struct __SecTask *SecTaskRef;
 extern SecTaskRef SecTaskCreateWithAuditToken(CFAllocatorRef allocator, audit_token_t token);
@@ -14,15 +15,15 @@ extern CFStringRef SecTaskCopySigningIdentifier(SecTaskRef task, CFErrorRef *err
 - (audit_token_t)auditToken;
 @end
 
-static BOOL FLAuthorize(NSXPCConnection *connection) {
+static BOOL FLAuthorize(NSXPCConnection *connection, NSString *executable, NSString *identity) {
     if (connection.effectiveUserIdentifier != 501 || ![connection respondsToSelector:@selector(auditToken)]
-        || !FLProcessMatches(connection.processIdentifier, @"/Applications/FridaLocal.app/FridaLocal")) return NO;
+        || !FLProcessMatches(connection.processIdentifier, executable)) return NO;
     audit_token_t token = connection.auditToken;
     SecTaskRef task = SecTaskCreateWithAuditToken(NULL, token);
     if (!task) return NO;
-    NSString *identity = CFBridgingRelease(SecTaskCopySigningIdentifier(task, NULL));
+    NSString *signingID = CFBridgingRelease(SecTaskCopySigningIdentifier(task, NULL));
     CFRelease(task);
-    return [identity isEqualToString:@"dev.fridalocal.app"];
+    return [signingID isEqualToString:identity];
 }
 
 typedef void (^FLReply)(NSData * _Nullable, NSString * _Nullable);
@@ -61,7 +62,7 @@ static int FLStartInstalledServer(void) {
     return failure ? EXIT_FAILURE : EXIT_SUCCESS;
 }
 
-@interface FLService : NSObject <LocalFridaService, FLInstallService>
+@interface FLService : NSObject <LocalFridaService, FLInstallService, FLScriptOverlayService>
 - (instancetype)initWithRuntime:(FLRuntime *)runtime queue:(dispatch_queue_t)queue owner:(NSUUID *)owner;
 @end
 
@@ -109,6 +110,10 @@ static int FLStartInstalledServer(void) {
     [self perform:^NSString *(FLRuntime *runtime) { return [runtime updateAddress:address port:port]; } reply:reply];
 }
 
+- (void)updateOverlayTransparency:(double)transparency withReply:(FLReply)reply {
+    [self perform:^NSString *(FLRuntime *runtime) { return [runtime updateOverlayTransparency:transparency]; } reply:reply];
+}
+
 - (void)installVersion:(NSString *)version checksum:(NSString *)checksum withReply:(FLReply)reply {
     [self perform:^NSString *(FLRuntime *runtime) { return [runtime installVersion:version checksum:checksum]; } reply:reply];
 }
@@ -151,6 +156,18 @@ static int FLStartInstalledServer(void) {
 - (void)consoleAfter:(NSInteger)cursor withReply:(FLReply)reply {
     dispatch_async(_queue, ^{ [self reply:reply json:[self->_runtime consoleAfter:cursor]]; });
 }
+
+- (void)scriptOverlayAfter:(NSInteger)cursor session:(NSString *)sessionID withReply:(FLOverlayReply)reply {
+    dispatch_async(_queue, ^{ [self reply:reply json:[self->_runtime scriptOverlayAfter:cursor session:sessionID]]; });
+}
+
+- (void)stopOverlaySession:(NSString *)sessionID withReply:(FLOverlayReply)reply {
+    dispatch_async(_queue, ^{
+        NSString *error = [self->_runtime stopOverlaySession:sessionID];
+        if (error) reply(nil, error);
+        else [self reply:reply json:@{}];
+    });
+}
 @end
 
 @interface FLListener : NSObject <NSXPCListenerDelegate>
@@ -169,11 +186,18 @@ static int FLStartInstalledServer(void) {
 }
 
 - (BOOL)listener:(NSXPCListener *)listener shouldAcceptNewConnection:(NSXPCConnection *)connection {
-    BOOL installer = connection.effectiveUserIdentifier == 0
-        && FLProcessMatches(connection.processIdentifier, @"/usr/bin/fridalocald");
-    if (!installer && !FLAuthorize(connection)) return NO;
+    Protocol *protocol = nil;
+    if (connection.effectiveUserIdentifier == 0
+        && FLProcessMatches(connection.processIdentifier, FLPath(@"/usr/bin/fridalocald"))) {
+        protocol = @protocol(FLInstallService);
+    } else if (FLAuthorize(connection, FLPath(@"/Applications/FridaLocal.app/FridaLocal"), @"dev.fridalocal.app")) {
+        protocol = @protocol(LocalFridaService);
+    } else if (FLAuthorize(connection, @"/System/Library/CoreServices/SpringBoard.app/SpringBoard", @"com.apple.springboard")) {
+        protocol = @protocol(FLScriptOverlayService);
+    }
+    if (!protocol) return NO;
     NSUUID *owner = [NSUUID UUID];
-    connection.exportedInterface = [NSXPCInterface interfaceWithProtocol:installer ? @protocol(FLInstallService) : @protocol(LocalFridaService)];
+    connection.exportedInterface = [NSXPCInterface interfaceWithProtocol:protocol];
     connection.exportedObject = [[FLService alloc] initWithRuntime:_runtime queue:_queue owner:owner];
     connection.invalidationHandler = ^{
         dispatch_async(self->_queue, ^{ [self->_runtime clientDisconnected:owner]; });

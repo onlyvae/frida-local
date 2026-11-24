@@ -18,9 +18,8 @@ struct ConsoleView: View {
             } else {
                 Section("输出") {
                     ForEach(service.logs.reversed()) { log in
-                        Text(log.text)
+                        Text(coloredLog(log))
                             .font(.system(.footnote, design: .monospaced))
-                            .foregroundStyle(log.kind == "error" ? Color.red : Color.primary)
                             .textSelection(.enabled)
                     }
                 }
@@ -32,6 +31,23 @@ struct ConsoleView: View {
                 Button("清空") { service.clearLogs() }.disabled(service.logs.isEmpty)
             }
         }
+    }
+
+    private func coloredLog(_ log: LogEntry) -> AttributedString {
+        let color: UIColor = log.kind == "error" ? .systemRed : .label
+        let styled = FLColorizedLog(log.text, [.foregroundColor: color], .systemBackground)
+        var line = AttributedString()
+        styled.enumerateAttributes(in: NSRange(location: 0, length: styled.length)) { attributes, range, _ in
+            var run = AttributedString((styled.string as NSString).substring(with: range))
+            if let foreground = attributes[.foregroundColor] as? UIColor {
+                run.foregroundColor = Color(uiColor: foreground)
+            }
+            if let background = attributes[.backgroundColor] as? UIColor {
+                run.backgroundColor = Color(uiColor: background)
+            }
+            line.append(run)
+        }
+        return line
     }
 }
 
@@ -53,6 +69,15 @@ struct ServerSettingsView: View {
 
     var body: some View {
         Form {
+            Section("运行浮层") {
+                let percentage = service.overlayTransparency.formatted(.percent.precision(.fractionLength(0)))
+                LabeledValue(label: "背景透明度", value: percentage)
+                Slider(value: Binding(get: { service.overlayTransparency }, set: service.setOverlayTransparency),
+                       in: 0...FLMaximumOverlayTransparency, step: 0.05)
+                    .accessibilityLabel("浮层背景透明度")
+                    .accessibilityValue(percentage)
+                    .disabled(!service.connected)
+            }
             Section {
                 LabeledValue(label: "状态", value: !service.connected ? "管理服务未连接" : (service.status.running ? "运行中" : "已停止"))
                 NavigationLink {

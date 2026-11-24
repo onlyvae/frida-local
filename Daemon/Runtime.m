@@ -1,11 +1,14 @@
 #import "Runtime.h"
 #import "ReleaseAssets.h"
+#import "../Shared/ScriptOverlayService.h"
 #import <roothide.h>
 #import <frida-core.h>
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <math.h>
+#include <notify.h>
 #include <signal.h>
 #include <spawn.h>
 #include <sys/file.h>
@@ -50,6 +53,20 @@ static NSString *FLSettingsPath(void) {
     return [FLPath(FLStateDirectory) stringByAppendingPathComponent:@"settings.plist"];
 }
 
+static NSString *FLOverlaySettingsPath(void) {
+    return [FLPath(FLStateDirectory) stringByAppendingPathComponent:@"script-overlay.plist"];
+}
+
+static BOOL FLValidOverlayTransparency(double value) {
+    return isfinite(value) && value >= 0 && value <= FLMaximumOverlayTransparency;
+}
+
+static double FLOverlayTransparency(void) {
+    id saved = [NSDictionary dictionaryWithContentsOfFile:FLOverlaySettingsPath()][@"transparency"];
+    double value = [saved isKindOfClass:NSNumber.class] ? [saved doubleValue] : 0;
+    return FLValidOverlayTransparency(value) ? value : 0;
+}
+
 static NSString *FLSelectedVersion(NSDictionary *settings) {
     NSString *version = settings[@"version"];
     NSInteger major = [version isKindOfClass:NSString.class] ? FLReleaseMajor(version) : 0;
@@ -64,7 +81,7 @@ BOOL FLProcessMatches(pid_t pid, NSString *executable) {
     char path[4096] = {0};
     if (pid < 2 || proc_pidpath(pid, path, sizeof(path)) <= 0) return NO;
     struct stat actual, expected;
-    return stat(path, &actual) == 0 && stat(FLPath(executable).fileSystemRepresentation, &expected) == 0
+    return stat(path, &actual) == 0 && stat(executable.fileSystemRepresentation, &expected) == 0
         && actual.st_dev == expected.st_dev && actual.st_ino == expected.st_ino;
 }
 
@@ -205,7 +222,9 @@ static void FLWithDeadline(NSTimeInterval seconds, void (^operation)(GCancellabl
 @interface FLConsole : NSObject
 @property (nonatomic, readonly) NSString *epoch;
 - (void)append:(NSString *)text kind:(NSString *)kind;
+- (void)append:(NSString *)text kind:(NSString *)kind session:(nullable NSString *)sessionID;
 - (NSArray *)entriesAfter:(NSInteger)cursor;
+- (NSArray *)entriesAfter:(NSInteger)cursor session:(nullable NSString *)sessionID;
 @end
 
 @implementation FLConsole {
@@ -221,6 +240,9 @@ static void FLWithDeadline(NSTimeInterval seconds, void (^operation)(GCancellabl
     return self;
 }
 - (void)append:(NSString *)text kind:(NSString *)kind {
+    [self append:text kind:kind session:nil];
+}
+- (void)append:(NSString *)text kind:(NSString *)kind session:(NSString *)sessionID {
     if (text.length > 4096) {
         NSRange range = [text rangeOfComposedCharacterSequencesForRange:NSMakeRange(0, 4096)];
         text = [text substringWithRange:range];
@@ -228,15 +250,21 @@ static void FLWithDeadline(NSTimeInterval seconds, void (^operation)(GCancellabl
     }
     [_lock lock];
     if (_entries.count >= 180) [_entries removeObjectAtIndex:0];
-    [_entries addObject:@{ @"id": @(++_sequence), @"text": text, @"kind": kind }];
+    NSMutableDictionary *entry = [@{ @"id": @(++_sequence), @"text": text, @"kind": kind } mutableCopy];
+    if (sessionID) entry[@"sessionID"] = sessionID;
+    [_entries addObject:entry];
     [_lock unlock];
 }
 - (NSArray *)entriesAfter:(NSInteger)cursor {
+    return [self entriesAfter:cursor session:nil];
+}
+- (NSArray *)entriesAfter:(NSInteger)cursor session:(NSString *)sessionID {
     [_lock lock];
     if (cursor > _sequence) cursor = 0;
     NSMutableArray *entries = [NSMutableArray new];
     for (NSDictionary *entry in _entries) {
-        if ([entry[@"id"] integerValue] > cursor) [entries addObject:entry];
+        if ([entry[@"id"] integerValue] > cursor
+            && (!sessionID || [entry[@"sessionID"] isEqualToString:sessionID])) [entries addObject:entry];
     }
     [_lock unlock];
     return entries;
@@ -249,12 +277,12 @@ static void FLReleaseContext(gpointer context, GClosure *closure) {
 
 static void FLMessage(FridaScript *script, const gchar *message, GBytes *bytes, gpointer context) {
     @autoreleasepool {
-        FLConsole *console = (__bridge FLConsole *)context;
+        void (^append)(NSString *, NSString *) = (__bridge id)context;
         NSString *raw = FLText(message);
         NSDictionary *json = [NSJSONSerialization JSONObjectWithData:[raw dataUsingEncoding:NSUTF8StringEncoding]
                                                                options:0 error:nil];
         if (![json isKindOfClass:NSDictionary.class]) {
-            [console append:raw kind:@"message"];
+            append(raw, @"message");
             return;
         }
         NSString *type = json[@"type"];
@@ -269,7 +297,7 @@ static void FLMessage(FridaScript *script, const gchar *message, GBytes *bytes, 
             if (data) text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: raw;
         }
         if (bytes) text = [text stringByAppendingFormat:@" (%zu bytes)", g_bytes_get_size(bytes)];
-        [console append:text kind:([type isEqualToString:@"error"] || [json[@"level"] isEqual:@"error"]) ? @"error" : @"message"];
+        append(text, ([type isEqualToString:@"error"] || [json[@"level"] isEqual:@"error"]) ? @"error" : @"message");
     }
 }
 
@@ -304,6 +332,8 @@ static void FLDetached(FridaSession *session, FridaSessionDetachReason reason, F
     gulong _detachHandler;
     NSString *_serverError;
     NSString *_sessionName;
+    NSString *_overlaySessionID;
+    NSTimeInterval _scriptStartUptime;
     NSUUID *_owner;
     FLConsole *_console;
 }
@@ -333,6 +363,22 @@ static void FLDetached(FridaSession *session, FridaSessionDetachReason reason, F
     return nil;
 }
 
+- (NSString *)updateOverlayTransparency:(double)transparency {
+    if (!FLValidOverlayTransparency(transparency)) return @"浮层透明度超出范围。";
+    NSError *error;
+    if (![NSFileManager.defaultManager createDirectoryAtPath:FLPath(FLStateDirectory)
+                               withIntermediateDirectories:YES attributes:@{ NSFilePosixPermissions: @0700 } error:&error]) {
+        return error.localizedDescription;
+    }
+    NSData *data = [NSPropertyListSerialization dataWithPropertyList:@{ @"transparency": @(transparency) }
+                     format:NSPropertyListBinaryFormat_v1_0 options:0 error:&error];
+    if (!data || ![data writeToFile:FLOverlaySettingsPath() options:NSDataWritingAtomic error:&error]) {
+        return error.localizedDescription ?: @"无法保存浮层透明度。";
+    }
+    notify_post(FLScriptOverlaySettingsChanged);
+    return nil;
+}
+
 - (NSDictionary *)status {
     [self refreshServer];
     if (_session && frida_session_is_detached(_session)) [self closeSession];
@@ -343,7 +389,8 @@ static void FLDetached(FridaSession *session, FridaSessionDetachReason reason, F
         _address = [settings[@"address"] isEqual:FLAllInterfacesAddress] ? FLAllInterfacesAddress : FLLoopbackAddress;
     }
     NSMutableDictionary *status = [@{ @"running": (_serverPID > 0 && _device != NULL && !_stoppingServer) ? @YES : @NO,
-        @"address": _address, @"port": @(_port), @"version": FLSelectedVersion(settings), @"installedVersions": FLInstalledReleases() } mutableCopy];
+        @"address": _address, @"port": @(_port), @"version": FLSelectedVersion(settings), @"installedVersions": FLInstalledReleases(),
+        FLOverlayTransparencyKey: @(FLOverlayTransparency()) } mutableCopy];
     if (_session) {
         status[@"sessionPID"] = @(frida_session_get_pid(_session));
         status[@"sessionName"] = _sessionName;
@@ -354,6 +401,22 @@ static void FLDetached(FridaSession *session, FridaSessionDetachReason reason, F
 
 - (NSDictionary *)consoleAfter:(NSInteger)cursor {
     return @{ @"epoch": _console.epoch, @"status": [self status], @"entries": [_console entriesAfter:cursor] };
+}
+
+- (NSDictionary *)scriptOverlayAfter:(NSInteger)cursor session:(NSString *)sessionID {
+    [self refreshServer];
+    if (_session && frida_session_is_detached(_session)) [self releaseSession];
+    if (!_overlaySessionID) return @{};
+    if (![_overlaySessionID isEqualToString:sessionID]) cursor = 0;
+    NSNumber *transparency = @(FLOverlayTransparency());
+    return @{ @"sessionID": _overlaySessionID, @"name": _sessionName, @"startUptime": @(_scriptStartUptime),
+              @"transparency": transparency, FLOverlayTransparencyKey: transparency,
+              @"entries": [_console entriesAfter:cursor session:_overlaySessionID] };
+}
+
+- (NSString *)stopOverlaySession:(NSString *)sessionID {
+    if (![_overlaySessionID isEqualToString:sessionID]) return @"该脚本会话已结束。";
+    return [self stopSession];
 }
 
 - (void)readServerOutput {
@@ -719,6 +782,11 @@ static void FLDetached(FridaSession *session, FridaSessionDetachReason reason, F
     __block guint pid = (guint)requestedPID;
     __block BOOL suspended = NO;
     __block NSString *failure = nil;
+    NSString *sessionID = NSUUID.UUID.UUIDString;
+    FLConsole *console = _console;
+    void (^appendMessage)(NSString *, NSString *) = ^(NSString *text, NSString *kind) {
+        [console append:text kind:kind session:sessionID];
+    };
     FLWithDeadline(18, ^(GCancellable *cancellable) {
         GError *error = NULL;
         if (spawn) {
@@ -741,7 +809,8 @@ static void FLDetached(FridaSession *session, FridaSessionDetachReason reason, F
         g_object_unref(options);
         if (!self->_script) { failure = FLFridaError(&error, @"无法创建脚本。"); return; }
         self->_messageHandler = g_signal_connect_data(self->_script, "message", G_CALLBACK(FLMessage),
-            (__bridge_retained void *)self->_console, FLReleaseContext, 0);
+            (__bridge_retained void *)[appendMessage copy], FLReleaseContext, 0);
+        self->_scriptStartUptime = NSProcessInfo.processInfo.systemUptime;
         frida_script_load_sync(self->_script, cancellable, &error);
         if (error) { failure = FLFridaError(&error, @"无法加载脚本。"); return; }
         if (suspended) {
@@ -766,6 +835,10 @@ static void FLDetached(FridaSession *session, FridaSessionDetachReason reason, F
         return failure;
     }
     [_console append:[NSString stringWithFormat:@"%@ 已加载（PID %u）。", name, pid] kind:@"status"];
+    if (_session && !frida_session_is_detached(_session)) {
+        _overlaySessionID = sessionID;
+        notify_post(FLScriptOverlayChanged);
+    }
     return nil;
 }
 
@@ -825,6 +898,10 @@ static void FLDetached(FridaSession *session, FridaSessionDetachReason reason, F
     g_clear_object(&_session);
     _owner = nil;
     _sessionName = nil;
+    if (_overlaySessionID) {
+        _overlaySessionID = nil;
+        notify_post(FLScriptOverlayChanged);
+    }
 }
 
 - (void)closeConnection {

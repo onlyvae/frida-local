@@ -10,9 +10,12 @@ NSInteger FLSelectedProtocolMajor(void);
 @interface FLRuntime : NSObject
 - (NSDictionary *)status;
 - (NSDictionary *)consoleAfter:(NSInteger)cursor;
+- (NSDictionary *)scriptOverlayAfter:(NSInteger)cursor session:(nullable NSString *)sessionID;
+- (nullable NSString *)stopOverlaySession:(NSString *)sessionID;
 - (nullable NSString *)startServer;
 - (nullable NSString *)stopServer;
 - (nullable NSString *)updateAddress:(NSString *)address port:(NSInteger)port;
+- (nullable NSString *)updateOverlayTransparency:(double)transparency;
 - (nullable NSString *)installVersion:(NSString *)version checksum:(nullable NSString *)checksum;
 - (nullable NSString *)selectVersion:(NSString *)version replacing:(NSString *)previous restart:(BOOL)restart;
 - (nullable NSString *)stopForVersionChange;
