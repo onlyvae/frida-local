@@ -10,6 +10,15 @@ static NSString *const FLOverlayLogModeKey = @"dev.fridalocal.script-overlay.log
 static const CGFloat FLHeaderHeight = 44;
 static const CGFloat FLSingleLineHeight = 28;
 
+@protocol FLIdleTimerAssertion <NSObject>
+- (void)invalidate;
+@end
+
+@interface SBIdleTimerGlobalCoordinator : NSObject
++ (instancetype)sharedInstance;
+- (id<FLIdleTimerAssertion>)acquireIdleTimerDisableAssertionForReason:(NSString *)reason;
+@end
+
 typedef NS_ENUM(NSInteger, FLOverlayLogMode) {
     FLOverlayLogExpanded,
     FLOverlayLogSingleLine,
@@ -402,6 +411,7 @@ typedef NS_ENUM(NSInteger, FLOverlayLogMode) {
     NSTimer *_timer;
     NSNumber *_major;
     NSString *_sessionID;
+    id<FLIdleTimerAssertion> _idleTimerAssertion;
     NSTimeInterval _startUptime;
     NSInteger _cursor;
     BOOL _fetching;
@@ -486,6 +496,8 @@ typedef NS_ENUM(NSInteger, FLOverlayLogMode) {
 - (void)displaySnapshot:(NSDictionary *)snapshot major:(NSNumber *)major {
     NSString *sessionID = snapshot[@"sessionID"];
     if (!sessionID) {
+        [_idleTimerAssertion invalidate];
+        _idleTimerAssertion = nil;
         [_timer invalidate];
         _timer = nil;
         _window.hidden = YES;
@@ -494,6 +506,16 @@ typedef NS_ENUM(NSInteger, FLOverlayLogMode) {
         _major = nil;
         _cursor = 0;
         return;
+    }
+
+    if (!_idleTimerAssertion) {
+        Class coordinatorClass = NSClassFromString(@"SBIdleTimerGlobalCoordinator");
+        if ([coordinatorClass respondsToSelector:@selector(sharedInstance)]) {
+            SBIdleTimerGlobalCoordinator *coordinator = [coordinatorClass sharedInstance];
+            if ([coordinator respondsToSelector:@selector(acquireIdleTimerDisableAssertionForReason:)]) {
+                _idleTimerAssertion = [coordinator acquireIdleTimerDisableAssertionForReason:@"Frida Local session"];
+            }
+        }
     }
 
     if (!_controller) {
