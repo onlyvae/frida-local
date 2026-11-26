@@ -7,5 +7,6 @@ INSTALL_TARGET_PROCESSES := SpringBoard
 FridaLocalOverlay_FILES := ScriptOverlay.m ../Shared/LocalFridaService.m ../Shared/TerminalLog.m
 FridaLocalOverlay_CFLAGS := -fobjc-arc -fmodules-cache-path=$(THEOS_PROJECT_DIR)/.theos/clang-cache
 FridaLocalOverlay_FRAMEWORKS := Foundation UIKit QuartzCore
+FridaLocalOverlay_LIBRARIES := roothide
 
 include $(THEOS_MAKE_PATH)/tweak.mk

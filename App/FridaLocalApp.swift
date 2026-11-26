@@ -130,7 +130,6 @@ private struct RootView: View {
 
 private struct ScriptDetails: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.openURL) private var openURL
     @EnvironmentObject private var library: ScriptLibrary
     @EnvironmentObject private var service: ServiceClient
     let script: LocalScript
@@ -139,6 +138,7 @@ private struct ScriptDetails: View {
     @State private var selectedApp: TargetInventoryEntry?
     @State private var selectedProcess: TargetInventoryEntry?
     @State private var spawn: Bool
+    @State private var showingSource = false
     @State private var confirmingDelete = false
     @State private var error: String?
 
@@ -221,7 +221,9 @@ private struct ScriptDetails: View {
                     || service.status.sessionPID != nil)
             }
             Section("文件") {
-                Button(action: viewScript) {
+                Button {
+                    showingSource = true
+                } label: {
                     Label("查看", systemImage: "doc.text")
                 }
                 Button(role: .destructive) {
@@ -239,6 +241,9 @@ private struct ScriptDetails: View {
             if enabled && selectedProcess?.isThirdParty == false { selectedProcess = nil }
         }
         .task(id: appToRestore) { await restoreApp() }
+        .sheet(isPresented: $showingSource) {
+            ScriptSourceSheet(script: script)
+        }
         .confirmationDialog("删除此脚本？", isPresented: $confirmingDelete, titleVisibility: .visible) {
             Button("删除", role: .destructive) {
                 do { try library.delete(script); dismiss() } catch { self.error = error.localizedDescription }
@@ -267,17 +272,6 @@ private struct ScriptDetails: View {
               let apps = try? await service.listTargets(spawn: true),
               !Task.isCancelled, selectedApp == nil else { return }
         selectedApp = apps.first { $0.bundleID == bundleID }
-    }
-
-    private func viewScript() {
-        do {
-            let url = try library.filzaURL(for: script)
-            openURL(url) { accepted in
-                if !accepted { self.error = "无法打开 Filza，请确认设备已安装 Filza。" }
-            }
-        } catch {
-            self.error = error.localizedDescription
-        }
     }
 }
 

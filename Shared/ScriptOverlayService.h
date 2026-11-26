@@ -2,6 +2,7 @@
 
 #define FLScriptOverlayChanged "dev.fridalocal.script-overlay.changed"
 #define FLScriptOverlaySettingsChanged "dev.fridalocal.script-overlay.settings-changed"
+#define FLOverlayEnabledKey @"overlayEnabled"
 #define FLOverlayTransparencyKey @"overlayTransparency"
 #define FLMaximumOverlayTransparency 0.8
 

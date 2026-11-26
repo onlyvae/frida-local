@@ -35,6 +35,7 @@ struct ServerStatus: Decodable {
     var sessionPID: Int?
     var sessionName: String?
     var serverError: String?
+    var overlayEnabled: Bool?
     var overlayTransparency: Double?
 }
 
@@ -72,6 +73,7 @@ final class ServiceClient: ObservableObject {
     @Published private(set) var pendingVersion: String?
     @Published private(set) var isDownloading = false
     @Published private(set) var downloadProgress: ReleaseDownloadProgress?
+    @Published private var pendingOverlayEnabled: Bool?
     @Published private(set) var pendingOverlayTransparency: Double?
 
     private var connections: [Int: NSXPCConnection] = [:]
@@ -106,7 +108,28 @@ final class ServiceClient: ObservableObject {
     }
     func stopSession() async { await operate { $0.stopSession(reply: $1) } }
 
+    var overlayEnabled: Bool { pendingOverlayEnabled ?? status.overlayEnabled ?? true }
+    var savingOverlayEnabled: Bool { pendingOverlayEnabled != nil }
     var overlayTransparency: Double { pendingOverlayTransparency ?? status.overlayTransparency ?? 0 }
+
+    func setOverlayEnabled(_ enabled: Bool) {
+        guard connected, !savingOverlayEnabled else { return }
+        pendingOverlayEnabled = enabled
+        Task {
+            defer { pendingOverlayEnabled = nil }
+            do {
+                let data = try await request { $0.updateOverlayEnabled(enabled, reply: $1) }
+                let saved = try JSONDecoder().decode(ServerStatus.self, from: data)
+                guard let enabled = saved.overlayEnabled else {
+                    throw ServiceError(message: "管理服务没有返回已保存的浮层显示设置。")
+                }
+                revision += 1
+                status.overlayEnabled = enabled
+            } catch {
+                operationError = error.localizedDescription
+            }
+        }
+    }
 
     func setOverlayTransparency(_ value: Double) {
         pendingOverlayTransparency = value

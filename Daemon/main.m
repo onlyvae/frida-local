@@ -114,6 +114,10 @@ static int FLStartInstalledServer(void) {
     [self perform:^NSString *(FLRuntime *runtime) { return [runtime updateOverlayTransparency:transparency]; } reply:reply];
 }
 
+- (void)updateOverlayEnabled:(BOOL)enabled withReply:(FLReply)reply {
+    [self perform:^NSString *(FLRuntime *runtime) { return [runtime updateOverlayEnabled:enabled]; } reply:reply];
+}
+
 - (void)installVersion:(NSString *)version checksum:(NSString *)checksum withReply:(FLReply)reply {
     [self perform:^NSString *(FLRuntime *runtime) { return [runtime installVersion:version checksum:checksum]; } reply:reply];
 }

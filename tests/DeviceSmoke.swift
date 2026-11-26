@@ -126,14 +126,10 @@ private func runTargetsSmoke(service: ServiceClient) async -> Bool {
         }
         let script = try library.importFile(example)
         imported = script
-        let link = try library.filzaURL(for: script)
-        let exported = try String(contentsOfFile: link.path, encoding: .utf8)
-        try require(link.scheme == "filza" && link.host == "view"
-                    && link.lastPathComponent == script.name && exported == script.source,
-                    "Filza URL opens a matching .js copy")
+        let highlighted = JavaScriptHighlighting.attributedSource(script.source)
+        try require(highlighted.string == script.source, "highlighting preserves the imported source")
         try library.delete(script)
         imported = nil
-        try require(!FileManager.default.fileExists(atPath: link.path), "delete the managed viewing copy with the script record")
 
         await service.poll()
         originallyRunning = service.status.running

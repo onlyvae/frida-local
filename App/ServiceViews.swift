@@ -69,15 +69,6 @@ struct ServerSettingsView: View {
 
     var body: some View {
         Form {
-            Section("运行浮层") {
-                let percentage = service.overlayTransparency.formatted(.percent.precision(.fractionLength(0)))
-                LabeledValue(label: "背景透明度", value: percentage)
-                Slider(value: Binding(get: { service.overlayTransparency }, set: service.setOverlayTransparency),
-                       in: 0...FLMaximumOverlayTransparency, step: 0.05)
-                    .accessibilityLabel("浮层背景透明度")
-                    .accessibilityValue(percentage)
-                    .disabled(!service.connected)
-            }
             Section {
                 LabeledValue(label: "状态", value: !service.connected ? "管理服务未连接" : (service.status.running ? "运行中" : "已停止"))
                 NavigationLink {
@@ -129,6 +120,23 @@ struct ServerSettingsView: View {
                 } else if service.status.running {
                     Text("保存配置会重启服务。")
                 }
+            }
+            Section {
+                Toggle("显示运行浮层", isOn: Binding(get: { service.overlayEnabled }, set: service.setOverlayEnabled))
+                    .disabled(!service.connected || service.savingOverlayEnabled)
+                if service.overlayEnabled {
+                    let percentage = service.overlayTransparency.formatted(.percent.precision(.fractionLength(0)))
+                    LabeledValue(label: "背景透明度", value: percentage)
+                    Slider(value: Binding(get: { service.overlayTransparency }, set: service.setOverlayTransparency),
+                           in: 0...FLMaximumOverlayTransparency, step: 0.05)
+                        .accessibilityLabel("浮层背景透明度")
+                        .accessibilityValue(percentage)
+                        .disabled(!service.connected)
+                }
+            } header: {
+                Text("运行浮层")
+            } footer: {
+                Text("开启后，运行脚本时会显示浮层。")
             }
         }
         .navigationTitle("设置")

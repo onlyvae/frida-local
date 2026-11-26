@@ -15,6 +15,7 @@ NSInteger FLSelectedProtocolMajor(void);
 - (nullable NSString *)startServer;
 - (nullable NSString *)stopServer;
 - (nullable NSString *)updateAddress:(NSString *)address port:(NSInteger)port;
+- (nullable NSString *)updateOverlayEnabled:(BOOL)enabled;
 - (nullable NSString *)updateOverlayTransparency:(double)transparency;
 - (nullable NSString *)installVersion:(NSString *)version checksum:(nullable NSString *)checksum;
 - (nullable NSString *)selectVersion:(NSString *)version replacing:(NSString *)previous restart:(BOOL)restart;

@@ -8,7 +8,7 @@
 2. 在「设置」的「Frida Server」中查看状态、启停服务或修改监听设置。首次安装默认监听 `127.0.0.1:27042`。也可选择 `0.0.0.0`（所有 IPv4 接口），地址与端口一起保存。
 3. 在「脚本」从「文件」导入一个 UTF-8 `.js`，或使用「导入示例」。
 4. 打开脚本。**Attach** 选择运行中的进程，**Spawn** 选择已安装的应用。默认仅显示第三方 App 及其进程。可在目标选择页关闭「仅第三方 App」，然后搜索或浏览全部目标（含系统进程）。选中任意目标即可运行。
-5. 在弹窗的「文件」区选择「查看」，可以在 Filza 定位脚本的 `.js` 副本。 [Filza 使用指南](https://www.tigisoftware.com/default/?page_id=177)
+5. 在弹窗的「文件」区选择「查看」，可在应用内打开带 JavaScript 语法高亮的只读代码视图，并选择或复制代码。
 6. Attach 或 Spawn 成功后，iPhone 会在会话期间暂停自动熄屏，会话结束后恢复系统原有的自动锁定行为。屏幕浮层会显示当前脚本、运行时间和实时日志。拖动标题栏可以移动浮层，点右上方的停止按钮可以结束会话。停止按钮左侧可依次切换「展开」「单行」「隐藏」日志。单行模式显示最新一条，超出宽度时会横向滚动。会话结束后浮层自动关闭，「日志」页仍可查看输出、异常和退出事件。浮层和「日志」页均支持 ANSI 颜色。
 7. 在「设置」的「运行浮层」中可调整并保存浮层背景透明度。正在显示的浮层会立即更新，文字和按钮保持清晰。
 
@@ -34,4 +34,4 @@ make package FINALPACKAGE=1
 
 `make deps` 下载并验证 Frida 16.7.19、17.27.4 的 iOS Core SDK，以及默认的 17.27.4 服务端。发行包包含两个协议主版本的客户端和服务管理 helper。安装或升级时沿用已保存的版本和监听设置。 [Frida 17.27.4 发行文件](https://github.com/frida/frida/releases/tag/17.27.4)
 
-真机自动化验收入口在清理构建目录后通过 `make package FINALPACKAGE=1 DEVICE_SMOKE=1` 编译。验收构建安装后，以设备的 `mobile` 用户运行 `/Applications/FridaLocal.app/FridaLocal --device-smoke`。也可用 `--catalog-smoke` 验证 GitHub 刷新、下载和跨版本脚本会话，用 `--listener-smoke` 验证监听设置与启动日志，或用 `--targets-smoke` 验证目标列表和 Filza 文件链接。清理后重新执行正常构建即可生成正式包。
+真机自动化验收入口在清理构建目录后通过 `make package FINALPACKAGE=1 DEVICE_SMOKE=1` 编译。验收构建安装后，以设备的 `mobile` 用户运行 `/Applications/FridaLocal.app/FridaLocal --device-smoke`。也可用 `--catalog-smoke` 验证 GitHub 刷新、下载和跨版本脚本会话，用 `--listener-smoke` 验证监听设置与启动日志，或用 `--targets-smoke` 验证目标列表和脚本源码显示。清理后重新执行正常构建即可生成正式包。

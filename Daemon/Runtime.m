@@ -61,8 +61,13 @@ static BOOL FLValidOverlayTransparency(double value) {
     return isfinite(value) && value >= 0 && value <= FLMaximumOverlayTransparency;
 }
 
-static double FLOverlayTransparency(void) {
-    id saved = [NSDictionary dictionaryWithContentsOfFile:FLOverlaySettingsPath()][@"transparency"];
+static BOOL FLOverlayEnabled(NSDictionary *settings) {
+    id saved = settings[@"enabled"];
+    return [saved isKindOfClass:NSNumber.class] ? [saved boolValue] : YES;
+}
+
+static double FLOverlayTransparency(NSDictionary *settings) {
+    id saved = settings[@"transparency"];
     double value = [saved isKindOfClass:NSNumber.class] ? [saved doubleValue] : 0;
     return FLValidOverlayTransparency(value) ? value : 0;
 }
@@ -363,20 +368,42 @@ static void FLDetached(FridaSession *session, FridaSessionDetachReason reason, F
     return nil;
 }
 
-- (NSString *)updateOverlayTransparency:(double)transparency {
-    if (!FLValidOverlayTransparency(transparency)) return @"浮层透明度超出范围。";
+- (NSString *)persistOverlaySetting:(NSString *)key value:(NSNumber *)value {
     NSError *error;
-    if (![NSFileManager.defaultManager createDirectoryAtPath:FLPath(FLStateDirectory)
+    NSString *path = FLOverlaySettingsPath();
+    if (![NSFileManager.defaultManager createDirectoryAtPath:path.stringByDeletingLastPathComponent
                                withIntermediateDirectories:YES attributes:@{ NSFilePosixPermissions: @0700 } error:&error]) {
         return error.localizedDescription;
     }
-    NSData *data = [NSPropertyListSerialization dataWithPropertyList:@{ @"transparency": @(transparency) }
-                     format:NSPropertyListBinaryFormat_v1_0 options:0 error:&error];
-    if (!data || ![data writeToFile:FLOverlaySettingsPath() options:NSDataWritingAtomic error:&error]) {
-        return error.localizedDescription ?: @"无法保存浮层透明度。";
+    NSString *lockPath = [path stringByAppendingPathExtension:@"lock"];
+    int fd = open(lockPath.fileSystemRepresentation, O_CREAT | O_CLOEXEC | O_NOFOLLOW | O_RDWR, 0600);
+    if (fd < 0) return @"无法锁定运行浮层设置。";
+    int locked;
+    do {
+        locked = flock(fd, LOCK_EX);
+    } while (locked < 0 && errno == EINTR);
+    if (locked < 0) {
+        close(fd);
+        return @"无法锁定运行浮层设置。";
     }
+    NSMutableDictionary *settings = [NSMutableDictionary dictionaryWithContentsOfFile:path] ?: [NSMutableDictionary new];
+    settings[key] = value;
+    NSData *data = [NSPropertyListSerialization dataWithPropertyList:settings
+                     format:NSPropertyListBinaryFormat_v1_0 options:0 error:&error];
+    BOOL saved = data && [data writeToFile:path options:NSDataWritingAtomic error:&error];
+    close(fd);
+    if (!saved) return error.localizedDescription ?: @"无法保存运行浮层设置。";
     notify_post(FLScriptOverlaySettingsChanged);
     return nil;
+}
+
+- (NSString *)updateOverlayEnabled:(BOOL)enabled {
+    return [self persistOverlaySetting:@"enabled" value:@(enabled)];
+}
+
+- (NSString *)updateOverlayTransparency:(double)transparency {
+    if (!FLValidOverlayTransparency(transparency)) return @"浮层透明度超出范围。";
+    return [self persistOverlaySetting:@"transparency" value:@(transparency)];
 }
 
 - (NSDictionary *)status {
@@ -388,9 +415,11 @@ static void FLDetached(FridaSession *session, FridaSessionDetachReason reason, F
         _port = saved >= 1024 && saved <= 65535 ? saved : FLDefaultPort;
         _address = [settings[@"address"] isEqual:FLAllInterfacesAddress] ? FLAllInterfacesAddress : FLLoopbackAddress;
     }
+    NSDictionary *overlaySettings = [NSDictionary dictionaryWithContentsOfFile:FLOverlaySettingsPath()];
     NSMutableDictionary *status = [@{ @"running": (_serverPID > 0 && _device != NULL && !_stoppingServer) ? @YES : @NO,
         @"address": _address, @"port": @(_port), @"version": FLSelectedVersion(settings), @"installedVersions": FLInstalledReleases(),
-        FLOverlayTransparencyKey: @(FLOverlayTransparency()) } mutableCopy];
+        FLOverlayEnabledKey: @(FLOverlayEnabled(overlaySettings)),
+        FLOverlayTransparencyKey: @(FLOverlayTransparency(overlaySettings)) } mutableCopy];
     if (_session) {
         status[@"sessionPID"] = @(frida_session_get_pid(_session));
         status[@"sessionName"] = _sessionName;
@@ -408,10 +437,13 @@ static void FLDetached(FridaSession *session, FridaSessionDetachReason reason, F
     if (_session && frida_session_is_detached(_session)) [self releaseSession];
     if (!_overlaySessionID) return @{};
     if (![_overlaySessionID isEqualToString:sessionID]) cursor = 0;
-    NSNumber *transparency = @(FLOverlayTransparency());
+    NSDictionary *settings = [NSDictionary dictionaryWithContentsOfFile:FLOverlaySettingsPath()];
+    BOOL enabled = FLOverlayEnabled(settings);
+    NSNumber *transparency = @(FLOverlayTransparency(settings));
     return @{ @"sessionID": _overlaySessionID, @"name": _sessionName, @"startUptime": @(_scriptStartUptime),
+              FLOverlayEnabledKey: @(enabled),
               @"transparency": transparency, FLOverlayTransparencyKey: transparency,
-              @"entries": [_console entriesAfter:cursor session:_overlaySessionID] };
+              @"entries": enabled ? [_console entriesAfter:cursor session:_overlaySessionID] : @[] };
 }
 
 - (NSString *)stopOverlaySession:(NSString *)sessionID {

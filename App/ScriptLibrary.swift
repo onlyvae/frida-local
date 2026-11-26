@@ -47,23 +47,6 @@ final class ScriptLibrary: ObservableObject {
         return script
     }
 
-    func filzaURL(for script: LocalScript) throws -> URL {
-        let filename = script.name.lowercased().hasSuffix(".js") ? script.name : "\(script.name).js"
-        let safeName = filename.contains("/") || filename.contains("\0") || filename.utf8.count > 255
-            ? "Script.js" : filename
-        let folder = viewingFolder(for: script.id)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let file = folder.appendingPathComponent(safeName)
-        try Data(script.source.utf8).write(to: file, options: .atomic)
-
-        var link = URLComponents()
-        link.scheme = "filza"
-        link.host = "view"
-        link.path = file.resolvingSymlinksInPath().path
-        guard let url = link.url else { throw ScriptError.invalidViewingLink }
-        return url
-    }
-
     func delete(_ script: LocalScript) throws {
         try FileManager.default.removeItem(at: location(of: script.id))
         scripts.removeAll { $0.id == script.id }
@@ -118,7 +101,7 @@ final class ScriptLibrary: ObservableObject {
 }
 
 private enum ScriptError: LocalizedError {
-    case invalidExtension, readFailed, tooLarge, invalidSource, invalidViewingLink
+    case invalidExtension, readFailed, tooLarge, invalidSource
 
     var errorDescription: String? {
         switch self {
@@ -126,7 +109,6 @@ private enum ScriptError: LocalizedError {
         case .readFailed: return "无法读取脚本。"
         case .tooLarge: return "单个脚本最大为 512 KB。"
         case .invalidSource: return "脚本必须是非空的 UTF-8 文本。"
-        case .invalidViewingLink: return "无法生成在 Filza 中查看脚本的链接。"
         }
     }
 }

@@ -1,5 +1,6 @@
 #import <UIKit/UIKit.h>
 #import <notify.h>
+#import <roothide.h>
 #import "../Shared/LocalFridaService.h"
 #import "../Shared/ScriptOverlayService.h"
 #import "../Shared/TerminalLog.h"
@@ -164,6 +165,18 @@ typedef NS_ENUM(NSInteger, FLOverlayLogMode) {
     UIStackView *dragArea = [[UIStackView alloc] initWithArrangedSubviews:@[_name, _elapsed]];
     dragArea.alignment = UIStackViewAlignmentCenter;
     dragArea.spacing = 8;
+    UIImage *icon = [UIImage imageWithContentsOfFile:jbroot(@"/Applications/FridaLocal.app/AppIcon20x20@3x.png")];
+    if (icon) {
+        UIImageView *iconView = [[UIImageView alloc] initWithImage:icon];
+        iconView.contentMode = UIViewContentModeScaleAspectFit;
+        iconView.layer.cornerRadius = 4;
+        iconView.clipsToBounds = YES;
+        [dragArea insertArrangedSubview:iconView atIndex:0];
+        [NSLayoutConstraint activateConstraints:@[
+            [iconView.widthAnchor constraintEqualToConstant:20],
+            [iconView.heightAnchor constraintEqualToConstant:20],
+        ]];
+    }
     _pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(drag:)];
     _pan.maximumNumberOfTouches = 1;
     [dragArea addGestureRecognizer:_pan];
@@ -461,7 +474,7 @@ typedef NS_ENUM(NSInteger, FLOverlayLogMode) {
 }
 
 - (void)refresh {
-    if (_sessionID) [_controller showElapsedSince:_startUptime];
+    if (_sessionID && _window && !_window.hidden) [_controller showElapsedSince:_startUptime];
     if (_fetching || _stopping) return;
     BOOL discovering = _needsDiscovery || !_major;
     _needsDiscovery = NO;
@@ -518,11 +531,6 @@ typedef NS_ENUM(NSInteger, FLOverlayLogMode) {
         }
     }
 
-    if (!_controller) {
-        _controller = [FLOverlayViewController new];
-        __weak typeof(self) weakSelf = self;
-        _controller.onStop = ^{ [weakSelf stopSession]; };
-    }
     if (![_sessionID isEqualToString:sessionID]) {
         _cursor = 0;
         [_controller setScriptName:snapshot[@"name"]];
@@ -530,6 +538,26 @@ typedef NS_ENUM(NSInteger, FLOverlayLogMode) {
     _sessionID = sessionID;
     _major = major;
     _startUptime = [snapshot[@"startUptime"] doubleValue];
+
+    if (!_timer) {
+        _timer = [NSTimer timerWithTimeInterval:0.5 repeats:YES block:^(NSTimer *timer) { [self refresh]; }];
+        _timer.tolerance = 0.05;
+        [NSRunLoop.mainRunLoop addTimer:_timer forMode:NSRunLoopCommonModes];
+    }
+
+    NSNumber *enabled = snapshot[FLOverlayEnabledKey];
+    if (enabled && !enabled.boolValue) {
+        _window.hidden = YES;
+        [_controller setSessionVisible:NO];
+        return;
+    }
+
+    if (!_controller) {
+        _controller = [FLOverlayViewController new];
+        __weak typeof(self) weakSelf = self;
+        _controller.onStop = ^{ [weakSelf stopSession]; };
+        [_controller setScriptName:snapshot[@"name"]];
+    }
 
     UIWindowScene *scene = nil;
     for (UIScene *candidate in UIApplication.sharedApplication.connectedScenes) {
@@ -554,12 +582,6 @@ typedef NS_ENUM(NSInteger, FLOverlayLogMode) {
     NSArray *entries = snapshot[@"entries"];
     [_controller appendEntries:entries];
     if (entries.count) _cursor = [entries.lastObject[@"id"] integerValue];
-
-    if (!_timer) {
-        _timer = [NSTimer timerWithTimeInterval:0.5 repeats:YES block:^(NSTimer *timer) { [self refresh]; }];
-        _timer.tolerance = 0.05;
-        [NSRunLoop.mainRunLoop addTimer:_timer forMode:NSRunLoopCommonModes];
-    }
 }
 
 - (void)stopSession {

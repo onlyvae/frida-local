@@ -3,7 +3,7 @@ THEOS_OBJ_DIR_NAME := obj/app$(if $(filter 1,$(DEVICE_SMOKE)),-smoke,)
 include $(THEOS)/makefiles/common.mk
 
 APPLICATION_NAME := FridaLocal
-FridaLocal_FILES := FridaLocalApp.swift AppIcon.swift ScriptLibrary.swift ServiceClient.swift ServiceViews.swift ReleaseCatalog.swift VersionListView.swift ../Shared/LocalFridaService.m
+FridaLocal_FILES := FridaLocalApp.swift AppIcon.swift ScriptLibrary.swift ScriptSourceSheet.swift ServiceClient.swift ServiceViews.swift ReleaseCatalog.swift VersionListView.swift ../Shared/LocalFridaService.m
 FridaLocal_FILES += ../Shared/TerminalLog.m
 FridaLocal_FRAMEWORKS := SwiftUI UIKit UniformTypeIdentifiers
 FridaLocal_CFLAGS := -fobjc-arc -fmodules-cache-path=$(THEOS_PROJECT_DIR)/.theos/clang-cache
