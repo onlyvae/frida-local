@@ -11,7 +11,7 @@ Frida Local 是一款面向 Roothide iPhone 的本地 Frida 脚本工具。你�
 
 ## 使用演示
 
-[观看 iPhone 实机演示（MP4，约 1 分 05 秒，9.3 MB）](docs/assets/frida-local-demo.mp4)
+https://github.com/user-attachments/assets/5af246be-e69b-4c17-9b76-ebef8e22ac67
 
 ## 系统要求与安装
 
